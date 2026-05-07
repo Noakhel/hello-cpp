@@ -1,0 +1,13 @@
+# Traffic Simulation Project
+
+## How to Compile
+To compile Milestone 2, run:
+make milestone2
+
+## How to Run
+After compiling, run the simulation with:
+./sim input.txt
+
+## Implementation Details
+- Milestone 1: Implemented Dijkstra's algorithm for shortest path calculation.
+- Milestone 2: Added graphical visualization using Raylib, including circular node layout and directional arrows.

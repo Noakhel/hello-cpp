@@ -1,89 +1,91 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "graph.h"
+#include "raylib.h"
+#include <math.h>
 
-// הדפסת מסלול בפורמט: 0 -> 2 -> 5
-void printPath(int parent[], int j) {
-    if (parent[j] == -1) {
-        printf("%d", j);
-        return;
+void AssignNodePositions(Graph *g) {
+    int centerX = 400, centerY = 300, radius = 200;
+    for (int i = 0; i < g->numNodes; i++) {
+        // חישוב מיקום על מעגל
+        double angle = i * (2 * PI / g->numNodes);
+        g->x[i] = centerX + radius * cos(angle);
+        g->y[i] = centerY + radius * sin(angle);
     }
-    printPath(parent, parent[j]);
-    printf(" -> %d", j);
 }
 
-void readGraph(const char* filename, Graph* g, int* start, int* end) {
-    int num_edges, u, v, w;
-    FILE* file = fopen(filename, "r");
-    if (!file) {
-        printf("Error: Could not open file\n");
-        exit(1);
-    }
+void DrawArrow(Vector2 start, Vector2 end, Color color) {
+    float lineThickness = 2.0f;
+    DrawLineEx(start, end, lineThickness, color);
 
-    if (fscanf(file, "%d %d", &(g->numNodes), &num_edges) != 2) exit(1);
+    // Calculate the angle of the line
+    float angle = atan2f(end.y - start.y, end.x - start.x);
+    float arrowSize = 15.0f;
 
-    for (int i = 0; i < g->numNodes; i++) {
-        for (int j = 0; j < g->numNodes; j++) {
-            g->weight[i][j] = (i == j) ? 0 : INF;
-        }
-    }
-
-    for (int i = 0; i < num_edges; i++) {
-        if (fscanf(file, "%d %d %d", &u, &v, &w) == 3) {
-            if (w < 0) {
-                printf("Error: Negative weight is invalid\n");
-                fclose(file);
-                exit(1);
-            }
-            g->weight[u][v] = w;
-        }
-    }
-
-    fscanf(file, "%d %d", start, end);
-    fclose(file);
-}
-
-void dijkstra(Graph* g, int start, int end) {
-    if (start == end) {
-        printf("%d\n0\n", start);
-        return;
-    }
-
-    int dist[MAX_NODES], visited[MAX_NODES], parent[MAX_NODES];
-    for (int i = 0; i < g->numNodes; i++) {
-        dist[i] = INF;
-        visited[i] = 0;
-        parent[i] = -1;
-    }
-    dist[start] = 0;
-
-    for (int count = 0; count < g->numNodes - 1; count++) {
-        int u = -1, min = INF;
-        for (int i = 0; i < g->numNodes; i++)
-            if (!visited[i] && dist[i] < min) { min = dist[i]; u = i; }
-
-        if (u == -1) break;
-        visited[u] = 1;
-
-        for (int v = 0; v < g->numNodes; v++)
-            if (!visited[v] && g->weight[u][v] != INF && dist[u] + g->weight[u][v] < dist[v]) {
-                parent[v] = u;
-                dist[v] = dist[u] + g->weight[u][v];
-            }
-    }
-
-    if (dist[end] == INF) {
-        printf("No path found\n");
-    } else {
-        printPath(parent, end);
-        printf("\n%d\n", dist[end]);
-    }
+    // Draw two lines to create the arrow head at the end point
+    DrawLineEx(end, (Vector2){ end.x - arrowSize * cosf(angle - PI/6),
+                               end.y - arrowSize * sinf(angle - PI/6) }, lineThickness, color);
+    DrawLineEx(end, (Vector2){ end.x - arrowSize * cosf(angle + PI/6),
+                               end.y - arrowSize * sinf(angle + PI/6) }, lineThickness, color);
 }
 
 int main() {
     Graph myGraph;
     int startNode, endNode;
+
+
     readGraph("input.txt", &myGraph, &startNode, &endNode);
+
+
+    AssignNodePositions(&myGraph);
+
+
+    InitWindow(800, 600, "Graph Project - Milestone 2");
+    SetTargetFPS(60);
+
+    while (!WindowShouldClose()) {
+        BeginDrawing();
+        ClearBackground(RAYWHITE);
+
+
+        for (int i = 0; i < myGraph.numNodes; i++) {
+            for (int j = 0; j < myGraph.numNodes; j++) {
+                // Inside the drawing loop:
+                if (myGraph.weight[i][j] > 0 && myGraph.weight[i][j] < 1000) {
+                    Vector2 start = { (float)myGraph.x[i], (float)myGraph.y[i] };
+                    Vector2 end = { (float)myGraph.x[j], (float)myGraph.y[j] };
+
+                    // Calculate the distance to "pull back" the arrow head so it sits on the circle's edge
+                    float angle = atan2f(end.y - start.y, end.x - start.x);
+                    int radius = 25; // The radius of your nodes
+                    Vector2 edgePoint = { end.x - radius * cosf(angle), end.y - radius * sinf(angle) };
+
+                    DrawArrow(start, edgePoint, GRAY);
+
+                    // Draw the weight text
+                    int midX = (start.x + end.x) / 2;
+                    int midY = (start.y + end.y) / 2;
+                    DrawText(TextFormat("%d", myGraph.weight[i][j]), midX, midY, 15, DARKGRAY);
+                }
+            }
+        }
+
+
+        for (int i = 0; i < myGraph.numNodes; i++) {
+            Color nodeColor = BLUE;
+            if (i == startNode) nodeColor = GREEN; // צומת התחלה בירוק
+            if (i == endNode) nodeColor = RED;     // צומת סיום באדום
+
+            DrawCircle(myGraph.x[i], myGraph.y[i], 25, nodeColor);
+            DrawText(TextFormat("%d", i), myGraph.x[i] - 5, myGraph.y[i] - 8, 20, WHITE);
+        }
+
+        EndDrawing();
+    }
+
+
+    CloseWindow();
     dijkstra(&myGraph, startNode, endNode);
+
     return 0;
 }
