@@ -58,9 +58,17 @@ int playing = 1;
         ClearBackground(RAYWHITE);
 if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
     Vector2 mouse = GetMousePosition();
-    if (CheckCollisionPointRec(mouse, button)) {
-        playing = !playing;
+   if (CheckCollisionPointRec(mouse, button)) {
+    playing = !playing;
+
+    if (pathIndex >= pathLength - 1) {
+        pathIndex = 0;
+        step = 0;
+        playerX = myGraph.x[path[0]];
+        playerY = myGraph.y[path[0]];
+        playing = 1;
     }
+}
 }
 
         for (int i = 0; i < myGraph.numNodes; i++) {
