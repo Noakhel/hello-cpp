@@ -42,6 +42,9 @@ int main() {
 
     InitWindow(800, 600, "Graph Project - Milestone 2");
     SetTargetFPS(60);
+    float playerX =myGraph.x[startNode];
+    float playerY =myGraph.y[startNode];
+    
 
     while (!WindowShouldClose()) {
         BeginDrawing();
@@ -79,7 +82,8 @@ int main() {
             DrawCircle(myGraph.x[i], myGraph.y[i], 25, nodeColor);
             DrawText(TextFormat("%d", i), myGraph.x[i] - 5, myGraph.y[i] - 8, 20, WHITE);
         }
-
+playerX += 1;
+        DrawCircle(playerX, playerY, 10, ORANGE);
         EndDrawing();
     }
 
