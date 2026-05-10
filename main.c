@@ -42,9 +42,15 @@ int main() {
 
     InitWindow(800, 600, "Graph Project - Milestone 2");
     SetTargetFPS(60);
-    float playerX =myGraph.x[startNode];
-    float playerY =myGraph.y[startNode];
-    
+    int path[] = {0, 2, 5};
+int pathLength = 3;
+int pathIndex = 0;
+
+int step = 0;
+int stepsOnEdge = myGraph.weight[path[0]][path[1]];
+
+float playerX = myGraph.x[path[0]];
+float playerY = myGraph.y[path[0]];
 
     while (!WindowShouldClose()) {
         BeginDrawing();
@@ -82,8 +88,26 @@ int main() {
             DrawCircle(myGraph.x[i], myGraph.y[i], 25, nodeColor);
             DrawText(TextFormat("%d", i), myGraph.x[i] - 5, myGraph.y[i] - 8, 20, WHITE);
         }
-playerX += 1;
-        DrawCircle(playerX, playerY, 10, ORANGE);
+if (pathIndex < pathLength - 1) {
+    int from = path[pathIndex];
+    int to = path[pathIndex + 1];
+
+    stepsOnEdge = myGraph.weight[from][to];
+
+    float t = (float)step / stepsOnEdge;
+
+    playerX = myGraph.x[from] + (myGraph.x[to] - myGraph.x[from]) * t;
+    playerY = myGraph.y[from] + (myGraph.y[to] - myGraph.y[from]) * t;
+
+    step++;
+
+    if (step > stepsOnEdge) {
+        step = 0;
+        pathIndex++;
+    }
+}
+
+DrawCircle(playerX, playerY, 15, BLACK);
         EndDrawing();
     }
 
