@@ -93,13 +93,14 @@ if (pathIndex < pathLength - 1) {
     int to = path[pathIndex + 1];
 
     stepsOnEdge = myGraph.weight[from][to];
-
-    float t = (float)step / stepsOnEdge;
+float t = (float)step / stepsOnEdge;
+    step++;
 
     playerX = myGraph.x[from] + (myGraph.x[to] - myGraph.x[from]) * t;
     playerY = myGraph.y[from] + (myGraph.y[to] - myGraph.y[from]) * t;
 
-    step++;
+   
+
 
     if (step > stepsOnEdge) {
         step = 0;
