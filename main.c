@@ -42,11 +42,34 @@ int main() {
 
     InitWindow(800, 600, "Graph Project - Milestone 2");
     SetTargetFPS(60);
+    int path[] = {0, 2, 5};
+int pathLength = 3;
+int pathIndex = 0;
 
+int step = 0;
+int stepsOnEdge = myGraph.weight[path[0]][path[1]];
+
+float playerX = myGraph.x[path[0]];
+float playerY = myGraph.y[path[0]];
+int playing = 1;
+    Rectangle button ={20,20,100,40};
     while (!WindowShouldClose()) {
         BeginDrawing();
         ClearBackground(RAYWHITE);
+if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+    Vector2 mouse = GetMousePosition();
+   if (CheckCollisionPointRec(mouse, button)) {
+    playing = !playing;
 
+    if (pathIndex >= pathLength - 1) {
+        pathIndex = 0;
+        step = 0;
+        playerX = myGraph.x[path[0]];
+        playerY = myGraph.y[path[0]];
+        playing = 1;
+    }
+}
+}
 
         for (int i = 0; i < myGraph.numNodes; i++) {
             for (int j = 0; j < myGraph.numNodes; j++) {
@@ -79,7 +102,39 @@ int main() {
             DrawCircle(myGraph.x[i], myGraph.y[i], 25, nodeColor);
             DrawText(TextFormat("%d", i), myGraph.x[i] - 5, myGraph.y[i] - 8, 20, WHITE);
         }
+       if (playing) {
+if (pathIndex < pathLength - 1) {
+    int from = path[pathIndex];
+    int to = path[pathIndex + 1];
 
+
+    stepsOnEdge = myGraph.weight[from][to];
+float t = (float)step / stepsOnEdge;
+    step++;
+
+    playerX = myGraph.x[from] + (myGraph.x[to] - myGraph.x[from]) * t;
+    playerY = myGraph.y[from] + (myGraph.y[to] - myGraph.y[from]) * t;
+
+   
+
+
+    if (step > stepsOnEdge) {
+        step = 0;
+        pathIndex++;
+    }
+}
+       }      
+
+DrawCircle(playerX, playerY, 15, BLACK);
+
+DrawRectangle(20, 20, 100, 40, LIGHTGRAY);
+
+if(playing)
+    DrawText("STOP", 40,30,20, BLACK);
+else
+    DrawText("START",35,30,20, BLACK);
+
+  
         EndDrawing();
     }
 
