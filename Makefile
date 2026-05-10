@@ -11,3 +11,5 @@ milestone2:
 # Clean build files
 clean:
 	rm -rf build-m1 build-m2 cmake-build-debug sim dijkstra
+milestone3:
+	gcc main.c graph.c -lraylib -lGL -lm -lpthread -ldl -lrt -lX11 -o sim
