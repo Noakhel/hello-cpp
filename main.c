@@ -115,6 +115,7 @@ float t = (float)step / stepsOnEdge;
         pathIndex++;
     }
 }
+       }      
 
 DrawCircle(playerX, playerY, 15, BLACK);
 
