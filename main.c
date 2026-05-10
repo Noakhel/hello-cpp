@@ -51,11 +51,17 @@ int stepsOnEdge = myGraph.weight[path[0]][path[1]];
 
 float playerX = myGraph.x[path[0]];
 float playerY = myGraph.y[path[0]];
-
+int playing = 1;
+    Rectangle button ={20,20,100,40};
     while (!WindowShouldClose()) {
         BeginDrawing();
         ClearBackground(RAYWHITE);
-
+if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+    Vector2 mouse = GetMousePosition();
+    if (CheckCollisionPointRec(mouse, button)) {
+        playing = !playing;
+    }
+}
 
         for (int i = 0; i < myGraph.numNodes; i++) {
             for (int j = 0; j < myGraph.numNodes; j++) {
@@ -88,9 +94,11 @@ float playerY = myGraph.y[path[0]];
             DrawCircle(myGraph.x[i], myGraph.y[i], 25, nodeColor);
             DrawText(TextFormat("%d", i), myGraph.x[i] - 5, myGraph.y[i] - 8, 20, WHITE);
         }
+       if (playing) {
 if (pathIndex < pathLength - 1) {
     int from = path[pathIndex];
     int to = path[pathIndex + 1];
+
 
     stepsOnEdge = myGraph.weight[from][to];
 float t = (float)step / stepsOnEdge;
@@ -109,6 +117,15 @@ float t = (float)step / stepsOnEdge;
 }
 
 DrawCircle(playerX, playerY, 15, BLACK);
+
+DrawRectangle(20, 20, 100, 40, LIGHTGRAY);
+
+if(playing)
+    DrawText("STOP", 40,30,20, BLACK);
+else
+    DrawText("START",35,30,20, BLACK);
+
+  
         EndDrawing();
     }
 
