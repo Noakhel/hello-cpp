@@ -4,6 +4,9 @@
 To compile Milestone 2, run:
 make milestone2
 
+To compile Milestone 4, run:
+make milestone4
+
 ## How to Run
 After compiling, run the simulation with:
 ./sim input.txt
@@ -11,3 +14,4 @@ After compiling, run the simulation with:
 ## Implementation Details
 - Milestone 1: Implemented Dijkstra's algorithm for shortest path calculation.
 - Milestone 2: Added graphical visualization using Raylib, including circular node layout and directional arrows.
+- Milestone 4: Transitioned to a multi-process concurrent model using `fork()` to create a dedicated child process for each traveler. The child processes log their creation and sleep, while the parent process independently manages the Raylib GUI loop to animate and render all travelers simultaneously, each with a unique color. Upon arrival at the destination, the parent dispatches a `SIGKILL` signal to terminate the child, and cleans up all processes using `waitpid()` to prevent zombies.
