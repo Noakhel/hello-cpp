@@ -8,8 +8,14 @@ milestone2:
 	cmake -B build-m2 -D target_name=sim
 	cmake --build build-m2
 
-# Clean build files
-clean:
-	rm -rf build-m1 build-m2 cmake-build-debug sim dijkstra
+# Milestone 3: Build the simulation with raylib animation
 milestone3:
 	gcc main.c graph.c -lraylib -lGL -lm -lpthread -ldl -lrt -lX11 -o sim
+
+# Milestone 4: Build the multi-process traveler simulation (New)
+milestone4:
+	gcc main.c graph.c -lraylib -lGL -lm -lpthread -ldl -lrt -lX11 -o sim
+
+# Clean all build and executable files
+clean:
+	rm -rf build-m1 build-m2 cmake-build-debug sim dijkstra
