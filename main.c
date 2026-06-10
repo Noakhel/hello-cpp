@@ -142,7 +142,7 @@ int main() {
                 TravelerMessage msg;
                 msg.pid = getpid();
                 msg.current_node = myPath[pathIdx];
-                
+
                 if (pathIdx < myPathLength - 1) {
                     msg.next_node = myPath[pathIdx + 1];
                     msg.is_finished = 0;
@@ -164,7 +164,7 @@ int main() {
         } else {
             child_pids[i] = pid;
             close(pipes[i][1]);
-            
+
             // הפיכת הצינור ללא-חוסם (Non-blocking)
             int flags = fcntl(pipes[i][0], F_GETFL, 0);
             fcntl(pipes[i][0], F_SETFL, flags | O_NONBLOCK);
@@ -194,11 +194,11 @@ int main() {
 
             TravelerMessage receivedMsg;
             ssize_t bytesRead = read(pipes[i][0], &receivedMsg, sizeof(TravelerMessage));
-            
+
             if (bytesRead > 0) {
                 gui_travelers[i].current_node = receivedMsg.current_node;
                 gui_travelers[i].next_node = receivedMsg.next_node;
-                
+
                 if (receivedMsg.is_finished) {
                     printf("[PID=%d] arrived at node %d | DESTINATION\n", receivedMsg.pid, receivedMsg.current_node);
                     gui_travelers[i].finished = 1;
@@ -215,7 +215,7 @@ int main() {
             if (gui_travelers[i].active && !gui_travelers[i].finished && gui_travelers[i].next_node != -1) {
                 int from = gui_travelers[i].current_node;
                 int to = gui_travelers[i].next_node;
-                
+
                 float targetX = myGraph.x[to];
                 float targetY = myGraph.y[to];
                 gui_travelers[i].posX += (targetX - gui_travelers[i].posX) * deltaTime * 2.0f;
@@ -262,9 +262,11 @@ int main() {
         EndDrawing();
     }
 
+    // איסוף הבנים והדפסת הודעת finished בדיוק לפי הדרישות החדשות!
     for (int i = 0; i < NUM_TRAVELERS; i++) {
         close(pipes[i][0]);
         waitpid(child_pids[i], NULL, 0);
+        printf("[PID=%d] finished\n", child_pids[i]);
     }
 
     CloseWindow();
