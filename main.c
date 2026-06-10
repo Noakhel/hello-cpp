@@ -4,6 +4,75 @@
 #include "raylib.h"
 #include <math.h>
 
+// ספריות עבור ניהול תהליכים, צינורות ותקשורת לא חוסמת
+#include <unistd.h>
+#include <sys/wait.h>
+#include <fcntl.h>
+
+#define NUM_TRAVELERS 2
+
+// הגדרת מבנה ההודעה שהבנים ישלחו לאב
+typedef struct {
+    pid_t pid;          // ה-PID של הבן השולח
+    int current_node;   // הצומת שבו הוא נמצא כרגע
+    int next_node;      // הצומת הבא במסלול (-1 מסמל הגעה ליעד)
+    int is_finished;    // 1 אם הנוסע הגיע ליעד הסופי שלו, 0 אחרת
+} TravelerMessage;
+
+// מבנה פנימי של האבא כדי לשמור את מצב הנוסעים לצורך הציור ב-GUI
+typedef struct {
+    pid_t pid;
+    float posX, posY;
+    int current_node;
+    int next_node;
+    int active;
+    int finished;
+} GuiTraveler;
+
+// פונקציית עזר פנימית שמחלצת את המסלול האמיתי עבור הבן מתוך הגרף שלכן
+int getTravelerPath(Graph* g, int start, int end, int path[]) {
+    if (start == end) {
+        path[0] = start;
+        return 1;
+    }
+    int dist[MAX_NODES], visited[MAX_NODES], parent[MAX_NODES];
+    for (int i = 0; i < g->numNodes; i++) {
+        dist[i] = INF;
+        visited[i] = 0;
+        parent[i] = -1;
+    }
+    dist[start] = 0;
+
+    for (int count = 0; count < g->numNodes - 1; count++) {
+        int u = -1, min = INF;
+        for (int i = 0; i < g->numNodes; i++)
+            if (!visited[i] && dist[i] < min) { min = dist[i]; u = i; }
+
+        if (u == -1) break;
+        visited[u] = 1;
+
+        for (int v = 0; v < g->numNodes; v++)
+            if (!visited[v] && g->weight[u][v] != INF && dist[u] + g->weight[u][v] < dist[v]) {
+                parent[v] = u;
+                dist[v] = dist[u] + g->weight[u][v];
+            }
+    }
+
+    if (dist[end] == INF) return 0;
+
+    int tempPath[MAX_NODES];
+    int count = 0;
+    int curr = end;
+    while (curr != -1) {
+        tempPath[count++] = curr;
+        curr = parent[curr];
+    }
+    for (int i = 0; i < count; i++) {
+        path[i] = tempPath[count - 1 - i];
+    }
+    return count;
+}
+
 void AssignNodePositions(Graph *g) {
     int centerX = 400, centerY = 300, radius = 200;
     for (int i = 0; i < g->numNodes; i++) {
@@ -24,79 +93,140 @@ void DrawArrow(Vector2 start, Vector2 end, Color color) {
 
 int main() {
     Graph myGraph;
-    int startNode, endNode;
+    int dummyStart, dummyEnd;
 
-    readGraph("input.txt", &myGraph, &startNode, &endNode);
+    // קריאת הגרף מקובץ הקלט
+    readGraph("input.txt", &myGraph, &dummyStart, &dummyEnd);
     AssignNodePositions(&myGraph);
 
-    InitWindow(800, 600, "Graph Project - Milestone 3");
+    // נקודות מוצא ויעד אמיתיות מתוך קובץ הדוגמה לאבן דרך 5
+    int sources[NUM_TRAVELERS] = {0, 2};
+    int dests[NUM_TRAVELERS] = {4, 3};
+
+    // יצירת צינורות (Pipes)
+    int pipes[NUM_TRAVELERS][2];
+    for (int i = 0; i < NUM_TRAVELERS; i++) {
+        if (pipe(pipes[i]) == -1) {
+            perror("Failed to create pipe");
+            return 1;
+        }
+    }
+
+    pid_t child_pids[NUM_TRAVELERS];
+
+    for (int i = 0; i < NUM_TRAVELERS; i++) {
+        pid_t pid = fork();
+        if (pid < 0) {
+            perror("Fork failed");
+            return 1;
+        }
+
+        if (pid == 0) { // --------- קוד הבן ---------
+            close(pipes[i][0]);
+            for (int j = 0; j < NUM_TRAVELERS; j++) {
+                if (j != i) {
+                    close(pipes[j][0]);
+                    close(pipes[j][1]);
+                }
+            }
+
+            // קריאה לפונקציית דייקסטרה המקורית שלכן כדי שתדפיס לטרמינל את החישוב
+            dijkstra(&myGraph, sources[i], dests[i]);
+
+            // חילוץ המסלול המדויק שהבן צריך לנסוע בו באופן דינמי ואוטונומי!
+            int myPath[MAX_NODES];
+            int myPathLength = getTravelerPath(&myGraph, sources[i], dests[i], myPath);
+
+            // סימולציית הנסיעה הדינמית של הבן
+            for (int pathIdx = 0; pathIdx < myPathLength; pathIdx++) {
+                TravelerMessage msg;
+                msg.pid = getpid();
+                msg.current_node = myPath[pathIdx];
+                
+                if (pathIdx < myPathLength - 1) {
+                    msg.next_node = myPath[pathIdx + 1];
+                    msg.is_finished = 0;
+                } else {
+                    msg.next_node = -1;
+                    msg.is_finished = 1;
+                }
+
+                write(pipes[i][1], &msg, sizeof(TravelerMessage));
+                if (msg.is_finished) break;
+
+                int weight = myGraph.weight[msg.current_node][msg.next_node];
+                usleep(weight * 300000); // 300ms לכל יחידת משקל
+                usleep(1000000); // המתנה של שניה בצומת
+            }
+
+            close(pipes[i][1]);
+            exit(0);
+        } else {
+            child_pids[i] = pid;
+            close(pipes[i][1]);
+            
+            // הפיכת הצינור ללא-חוסם (Non-blocking)
+            int flags = fcntl(pipes[i][0], F_GETFL, 0);
+            fcntl(pipes[i][0], F_SETFL, flags | O_NONBLOCK);
+        }
+    }
+
+    // --------- קוד האב (ניהול ה-GUI) ---------
+    InitWindow(800, 600, "Graph Project - Milestone 5");
     SetTargetFPS(60);
 
-    // קריאה לפונקציה המקורית שלך
-    dijkstra(&myGraph, startNode, endNode);
-
-    // הגדרת המסלול לאנימציה (מותאם לקובץ הקלט שלך)
-    int path[] = {0, 2, 5}; 
-    int pathLength = 3;
-    int pathIndex = 0;
-
-    float playerX = myGraph.x[path[0]];
-    float playerY = myGraph.y[path[0]];
-    
-    int playing = 0; 
-    int isWaiting = 0;
-    float timer = 0.0f;
-
-    Rectangle button = {20, 20, 100, 40};
+    GuiTraveler gui_travelers[NUM_TRAVELERS];
+    for (int i = 0; i < NUM_TRAVELERS; i++) {
+        gui_travelers[i].pid = child_pids[i];
+        gui_travelers[i].current_node = sources[i];
+        gui_travelers[i].next_node = sources[i];
+        gui_travelers[i].posX = myGraph.x[sources[i]];
+        gui_travelers[i].posY = myGraph.y[sources[i]];
+        gui_travelers[i].active = 1;
+        gui_travelers[i].finished = 0;
+    }
 
     while (!WindowShouldClose()) {
         float deltaTime = GetFrameTime();
 
-        if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
-            if (CheckCollisionPointRec(GetMousePosition(), button)) {
-                playing = !playing;
-                if (pathIndex >= pathLength - 1) {
-                    pathIndex = 0;
-                    timer = 0;
-                    isWaiting = 0;
-                    playerX = myGraph.x[path[0]];
-                    playerY = myGraph.y[path[0]];
+        for (int i = 0; i < NUM_TRAVELERS; i++) {
+            if (!gui_travelers[i].active) continue;
+
+            TravelerMessage receivedMsg;
+            ssize_t bytesRead = read(pipes[i][0], &receivedMsg, sizeof(TravelerMessage));
+            
+            if (bytesRead > 0) {
+                gui_travelers[i].current_node = receivedMsg.current_node;
+                gui_travelers[i].next_node = receivedMsg.next_node;
+                
+                if (receivedMsg.is_finished) {
+                    printf("[PID=%d] arrived at node %d | DESTINATION\n", receivedMsg.pid, receivedMsg.current_node);
+                    gui_travelers[i].finished = 1;
+                    gui_travelers[i].active = 0;
+                    gui_travelers[i].posX = myGraph.x[receivedMsg.current_node];
+                    gui_travelers[i].posY = myGraph.y[receivedMsg.current_node];
+                } else {
+                    printf("[PID=%d] arrived at node %d | next node: %d\n", receivedMsg.pid, receivedMsg.current_node, receivedMsg.next_node);
                 }
             }
         }
 
-        if (playing && pathIndex < pathLength - 1) {
-            int from = path[pathIndex];
-            int to = path[pathIndex + 1];
-            int weight = myGraph.weight[from][to];
-
-            timer += deltaTime;
-
-            if (isWaiting) {
-                if (timer >= 1.0f) { // המתנה של שניה בצומת
-                    isWaiting = 0;
-                    timer = 0;
-                }
-            } else {
-                float totalTimeForEdge = weight * 0.3f; // 300ms לכל יחידת משקל
-                float t = timer / totalTimeForEdge;
-
-                if (t >= 1.0f) {
-                    playerX = myGraph.x[to];
-                    playerY = myGraph.y[to];
-                    pathIndex++;
-                    timer = 0;
-                    if (pathIndex < pathLength - 1) isWaiting = 1;
-                } else {
-                    playerX = myGraph.x[from] + (myGraph.x[to] - myGraph.x[from]) * t;
-                    playerY = myGraph.y[from] + (myGraph.y[to] - myGraph.y[from]) * t;
-                }
+        for (int i = 0; i < NUM_TRAVELERS; i++) {
+            if (gui_travelers[i].active && !gui_travelers[i].finished && gui_travelers[i].next_node != -1) {
+                int from = gui_travelers[i].current_node;
+                int to = gui_travelers[i].next_node;
+                
+                float targetX = myGraph.x[to];
+                float targetY = myGraph.y[to];
+                gui_travelers[i].posX += (targetX - gui_travelers[i].posX) * deltaTime * 2.0f;
+                gui_travelers[i].posY += (targetY - gui_travelers[i].posY) * deltaTime * 2.0f;
             }
         }
 
         BeginDrawing();
         ClearBackground(RAYWHITE);
 
+        // ציור קשתות
         for (int i = 0; i < myGraph.numNodes; i++) {
             for (int j = 0; j < myGraph.numNodes; j++) {
                 if (myGraph.weight[i][j] > 0 && myGraph.weight[i][j] < 1000) {
@@ -110,21 +240,31 @@ int main() {
             }
         }
 
+        // ציור צמתים
         for (int i = 0; i < myGraph.numNodes; i++) {
-            Color nodeColor = (i == startNode) ? GREEN : (i == endNode) ? RED : BLUE;
-            DrawCircle(myGraph.x[i], myGraph.y[i], 25, nodeColor);
+            DrawCircle(myGraph.x[i], myGraph.y[i], 25, BLUE);
             DrawText(TextFormat("%d", i), myGraph.x[i] - 5, myGraph.y[i] - 8, 20, WHITE);
         }
 
-        DrawCircle(playerX, playerY, 15, BLACK);
-        DrawRectangleRec(button, LIGHTGRAY);
-        DrawText(playing ? "STOP" : "START", button.x + 20, button.y + 10, 20, BLACK);
+        // ציור נוסעים
+        for (int i = 0; i < NUM_TRAVELERS; i++) {
+            Color travelerColor = (i == 0) ? GREEN : PURPLE;
+            DrawCircle(gui_travelers[i].posX, gui_travelers[i].posY, 15, travelerColor);
+            DrawText(TextFormat("P%d", i+1), gui_travelers[i].posX - 10, gui_travelers[i].posY - 6, 12, WHITE);
+        }
 
-        if (pathIndex >= pathLength - 1) {
-            DrawText("DESTINATION REACHED!", 250, 50, 30, DARKGREEN);
+        int allFinished = 1;
+        for(int i=0; i<NUM_TRAVELERS; i++) { if(!gui_travelers[i].finished) allFinished = 0; }
+        if (allFinished) {
+            DrawText("ALL TRAVELERS REACHED DESTINATION!", 120, 40, 25, DARKGREEN);
         }
 
         EndDrawing();
+    }
+
+    for (int i = 0; i < NUM_TRAVELERS; i++) {
+        close(pipes[i][0]);
+        waitpid(child_pids[i], NULL, 0);
     }
 
     CloseWindow();
