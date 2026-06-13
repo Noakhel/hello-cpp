@@ -12,8 +12,16 @@ milestone2:
 milestone3:
 	gcc main.c graph.c -lraylib -lGL -lm -lpthread -ldl -lrt -lX11 -o sim
 
-# Milestone 4: Build the multi-process traveler simulation (New)
+# Milestone 4: Build the multi-process traveler simulation
 milestone4:
+	gcc main.c graph.c -lraylib -lGL -lm -lpthread -ldl -lrt -lX11 -o sim
+
+# Milestone 5: Build the dynamic and independent simulation
+milestone5:
+	gcc main.c graph.c -lraylib -lGL -lm -lpthread -ldl -lrt -lX11 -o sim
+
+# Milestone 6: Build the next step simulation
+milestone6:
 	gcc main.c graph.c -lraylib -lGL -lm -lpthread -ldl -lrt -lX11 -o sim
 
 # Clean all build and executable files
