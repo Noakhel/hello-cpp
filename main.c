@@ -262,7 +262,7 @@ int main() {
         EndDrawing();
     }
 
-    // איסוף הבנים והדפסת הודעת finished בדיוק לפי הדרישות החדשות!
+    // איסוף הבנים והדפסת finished בסיום (דרישת חובה!)
     for (int i = 0; i < NUM_TRAVELERS; i++) {
         close(pipes[i][0]);
         waitpid(child_pids[i], NULL, 0);
