@@ -30,7 +30,7 @@ typedef struct {
     int next_node;
     int active;
     int finished;
-int waiting;
+    int waiting;
 } GuiTraveler;
 
 // פונקציית עזר פנימית שמחלצת את המסלול האמיתי עבור הבן מתוך הגרף שלכן
@@ -106,18 +106,18 @@ int main() {
                         PROT_READ | PROT_WRITE,
                         MAP_SHARED | MAP_ANONYMOUS, -1, 0);
 
-if (node_sems == MAP_FAILED) {
-    perror("mmap failed");
-    return 1;
-}
+    if (node_sems == MAP_FAILED) {
+        perror("mmap failed");
+        return 1;
+    }
 
-for (int i = 0; i < myGraph.numNodes; i++) {
-    sem_init(&node_sems[i], 1, 1);
-}
+    for (int i = 0; i < myGraph.numNodes; i++) {
+        sem_init(&node_sems[i], 1, 1);
+    }
 
-    // נקודות מוצא ויעד אמיתיות מתוך קובץ הדוגמה לאבן דרך 5
-    int sources[NUM_TRAVELERS] = {0, 1,2};
-    int dests[NUM_TRAVELERS] = {4, 4,4};
+    // נקודות מוצא ויעד אמיתיות מתוך קובץ הדוגמה
+    int sources[NUM_TRAVELERS] = {0, 1, 2};
+    int dests[NUM_TRAVELERS] = {4, 4, 4};
 
     // יצירת צינורות (Pipes)
     int pipes[NUM_TRAVELERS][2];
@@ -146,10 +146,9 @@ for (int i = 0; i < myGraph.numNodes; i++) {
                 }
             }
 
-            // קריאה לפונקציית דייקסטרה המקורית שלכן כדי שתדפיס לטרמינל את החישוב
+            // קריאה לפונקציית דייקסטרה המקורית
             dijkstra(&myGraph, sources[i], dests[i]);
 
-            // חילוץ המסלול המדויק שהבן צריך לנסוע בו באופן דינמי ואוטונומי!
             int myPath[MAX_NODES];
             int myPathLength = getTravelerPath(&myGraph, sources[i], dests[i], myPath);
 
@@ -166,19 +165,24 @@ for (int i = 0; i < myGraph.numNodes; i++) {
                     msg.next_node = -1;
                     msg.is_finished = 1;
                 }
-msg.is_waiting = 1;
-write(pipes[i][1], &msg, sizeof(TravelerMessage));
-
-sem_wait(&node_sems[msg.current_node]);
-
-msg.is_waiting = 0;
+                msg.is_waiting = 1;
                 write(pipes[i][1], &msg, sizeof(TravelerMessage));
-                if (msg.is_finished) break;
+
+                sem_wait(&node_sems[msg.current_node]);
+
+                msg.is_waiting = 0;
+                write(pipes[i][1], &msg, sizeof(TravelerMessage));
+                
+                // --- התיקון המרכזי כאן ---
+                if (msg.is_finished) {
+                    sem_post(&node_sems[msg.current_node]); // שחרור המנעול בצומת היעד לפני סיום!
+                    break;
+                }
 
                 int weight = myGraph.weight[msg.current_node][msg.next_node];
                 usleep(weight * 300000); // 300ms לכל יחידת משקל
-                usleep(1000000); //המתנה של שניה בצומת
-           sem_post(&node_sems[msg.current_node]);
+                usleep(1000000); // המתנה של שניה בצומת
+                sem_post(&node_sems[msg.current_node]);
             }
 
             close(pipes[i][1]);
@@ -202,7 +206,6 @@ msg.is_waiting = 0;
         gui_travelers[i].pid = child_pids[i];
         gui_travelers[i].current_node = sources[i];
         gui_travelers[i].next_node = sources[i];
-        gui_travelers[i].waiting = receivedMsg.is_waiting;
         gui_travelers[i].posX = myGraph.x[sources[i]];
         gui_travelers[i].posY = myGraph.y[sources[i]];
         gui_travelers[i].active = 1;
@@ -212,7 +215,6 @@ msg.is_waiting = 0;
 
     while (!WindowShouldClose()) {
         float deltaTime = GetFrameTime();
-
         for (int i = 0; i < NUM_TRAVELERS; i++) {
             if (!gui_travelers[i].active) continue;
 
@@ -222,6 +224,7 @@ msg.is_waiting = 0;
             if (bytesRead > 0) {
                 gui_travelers[i].current_node = receivedMsg.current_node;
                 gui_travelers[i].next_node = receivedMsg.next_node;
+                gui_travelers[i].waiting = receivedMsg.is_waiting;
 
                 if (receivedMsg.is_finished) {
                     printf("[PID=%d] arrived at node %d | DESTINATION\n", receivedMsg.pid, receivedMsg.current_node);
@@ -237,7 +240,6 @@ msg.is_waiting = 0;
 
         for (int i = 0; i < NUM_TRAVELERS; i++) {
             if (gui_travelers[i].active && !gui_travelers[i].finished && gui_travelers[i].next_node != -1) {
-                int from = gui_travelers[i].current_node;
                 int to = gui_travelers[i].next_node;
 
                 float targetX = myGraph.x[to];
@@ -274,15 +276,15 @@ msg.is_waiting = 0;
         for (int i = 0; i < NUM_TRAVELERS; i++) {
             Color travelerColor;
 
-if (gui_travelers[i].waiting) {
-    travelerColor = ORANGE;
-} else if (i == 0) {
-    travelerColor = GREEN;
-} else if (i == 1) {
-    travelerColor = PURPLE;
-} else {
-    travelerColor = RED;
-}
+            if (gui_travelers[i].waiting) {
+                travelerColor = ORANGE;
+            } else if (i == 0) {
+                travelerColor = GREEN;
+            } else if (i == 1) {
+                travelerColor = PURPLE;
+            } else {
+                travelerColor = RED;
+            }
             DrawCircle(gui_travelers[i].posX, gui_travelers[i].posY, 15, travelerColor);
             DrawText(TextFormat("P%d", i+1), gui_travelers[i].posX - 10, gui_travelers[i].posY - 6, 12, WHITE);
         }
@@ -296,7 +298,7 @@ if (gui_travelers[i].waiting) {
         EndDrawing();
     }
 
-    // איסוף הבנים והדפסת finished בסיום (דרישת חובה!)
+    // איסוף הבנים והדפסת finished בסיום
     for (int i = 0; i < NUM_TRAVELERS; i++) {
         close(pipes[i][0]);
         waitpid(child_pids[i], NULL, 0);
@@ -306,3 +308,4 @@ if (gui_travelers[i].waiting) {
     CloseWindow();
     return 0;
 }
+
