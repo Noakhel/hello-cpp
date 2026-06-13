@@ -8,15 +8,18 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <fcntl.h>
+#include <sys/mman.h>
+#include <semaphore.h>
 
-#define NUM_TRAVELERS 2
+#define NUM_TRAVELERS 3
 
 // הגדרת מבנה ההודעה שהבנים ישלחו לאב
 typedef struct {
-    pid_t pid;          // ה-PID של הבן השולח
-    int current_node;   // הצומת שבו הוא נמצא כרגע
-    int next_node;      // הצומת הבא במסלול (-1 מסמל הגעה ליעד)
-    int is_finished;    // 1 אם הנוסע הגיע ליעד הסופי שלו, 0 אחרת
+    pid_t pid;
+    int current_node;
+    int next_node;
+    int is_finished;
+    int is_waiting;
 } TravelerMessage;
 
 // מבנה פנימי של האבא כדי לשמור את מצב הנוסעים לצורך הציור ב-GUI
@@ -27,6 +30,7 @@ typedef struct {
     int next_node;
     int active;
     int finished;
+int waiting;
 } GuiTraveler;
 
 // פונקציית עזר פנימית שמחלצת את המסלול האמיתי עבור הבן מתוך הגרף שלכן
@@ -98,10 +102,22 @@ int main() {
     // קריאת הגרף מקובץ הקלט
     readGraph("input.txt", &myGraph, &dummyStart, &dummyEnd);
     AssignNodePositions(&myGraph);
+    sem_t *node_sems = mmap(NULL, sizeof(sem_t) * myGraph.numNodes,
+                        PROT_READ | PROT_WRITE,
+                        MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+
+if (node_sems == MAP_FAILED) {
+    perror("mmap failed");
+    return 1;
+}
+
+for (int i = 0; i < myGraph.numNodes; i++) {
+    sem_init(&node_sems[i], 1, 1);
+}
 
     // נקודות מוצא ויעד אמיתיות מתוך קובץ הדוגמה לאבן דרך 5
-    int sources[NUM_TRAVELERS] = {0, 2};
-    int dests[NUM_TRAVELERS] = {4, 3};
+    int sources[NUM_TRAVELERS] = {0, 1,2};
+    int dests[NUM_TRAVELERS] = {4, 4,4};
 
     // יצירת צינורות (Pipes)
     int pipes[NUM_TRAVELERS][2];
@@ -150,13 +166,19 @@ int main() {
                     msg.next_node = -1;
                     msg.is_finished = 1;
                 }
+msg.is_waiting = 1;
+write(pipes[i][1], &msg, sizeof(TravelerMessage));
 
+sem_wait(&node_sems[msg.current_node]);
+
+msg.is_waiting = 0;
                 write(pipes[i][1], &msg, sizeof(TravelerMessage));
                 if (msg.is_finished) break;
 
                 int weight = myGraph.weight[msg.current_node][msg.next_node];
                 usleep(weight * 300000); // 300ms לכל יחידת משקל
-                usleep(1000000); // המתנה של שניה בצומת
+                usleep(1000000); //המתנה של שניה בצומת
+           sem_post(&node_sems[msg.current_node]);
             }
 
             close(pipes[i][1]);
@@ -172,7 +194,7 @@ int main() {
     }
 
     // --------- קוד האב (ניהול ה-GUI) ---------
-    InitWindow(800, 600, "Graph Project - Milestone 5");
+    InitWindow(800, 600, "Graph Project - Milestone 6");
     SetTargetFPS(60);
 
     GuiTraveler gui_travelers[NUM_TRAVELERS];
@@ -180,10 +202,12 @@ int main() {
         gui_travelers[i].pid = child_pids[i];
         gui_travelers[i].current_node = sources[i];
         gui_travelers[i].next_node = sources[i];
+        gui_travelers[i].waiting = receivedMsg.is_waiting;
         gui_travelers[i].posX = myGraph.x[sources[i]];
         gui_travelers[i].posY = myGraph.y[sources[i]];
         gui_travelers[i].active = 1;
         gui_travelers[i].finished = 0;
+        gui_travelers[i].waiting = 0;
     }
 
     while (!WindowShouldClose()) {
@@ -248,7 +272,17 @@ int main() {
 
         // ציור נוסעים
         for (int i = 0; i < NUM_TRAVELERS; i++) {
-            Color travelerColor = (i == 0) ? GREEN : PURPLE;
+            Color travelerColor;
+
+if (gui_travelers[i].waiting) {
+    travelerColor = ORANGE;
+} else if (i == 0) {
+    travelerColor = GREEN;
+} else if (i == 1) {
+    travelerColor = PURPLE;
+} else {
+    travelerColor = RED;
+}
             DrawCircle(gui_travelers[i].posX, gui_travelers[i].posY, 15, travelerColor);
             DrawText(TextFormat("P%d", i+1), gui_travelers[i].posX - 10, gui_travelers[i].posY - 6, 12, WHITE);
         }
