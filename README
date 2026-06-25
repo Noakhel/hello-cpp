@@ -1,17 +1,36 @@
 # Traffic Simulation Project
 
 ## How to Compile
-To compile Milestone 2, run:
-make milestone2
+To compile the final milestone (Milestone 7), run:
+make milestone7
 
-To compile Milestone 4, run:
-make milestone4
+To clean up all build and executable files, run:
+make clean
+
+*(Note: Legacy build commands like `make milestone2` and `make milestone4` are still supported via the Makefile).*
 
 ## How to Run
-After compiling, run the simulation with:
-./sim input.txt
+The simulation now requires a scheduling algorithm flag to determine how node queues are managed.
+
+To run the simulation with FCFS (First Come First Serve) scheduling:
+./sim -schd fcfs input.txt
+
+To run the simulation with SJF (Shortest Job First) scheduling:
+./sim -schd sjf input.txt
 
 ## Implementation Details
-- Milestone 1: Implemented Dijkstra's algorithm for shortest path calculation.
-- Milestone 2: Added graphical visualization using Raylib, including circular node layout and directional arrows.
-- Milestone 4: Transitioned to a multi-process concurrent model using `fork()` to create a dedicated child process for each traveler. The child processes log their creation and sleep, while the parent process independently manages the Raylib GUI loop to animate and render all travelers simultaneously, each with a unique color. Upon arrival at the destination, the parent dispatches a `SIGKILL` signal to terminate the child, and cleans up all processes using `waitpid()` to prevent zombies.
+- **Milestone 1:** Implemented Dijkstra's algorithm for shortest path calculation.
+- **Milestone 2:** Added graphical visualization using Raylib, including circular node layout and directional arrows.
+- **Milestone 4:** Transitioned to a multi-process concurrent model using `fork()` to create a dedicated child process for each traveler.
+- **Milestone 7 (Final):** Upgraded the parent process to act as a **Central Scheduler**. Child processes communicate their arrival at nodes via non-blocking pipes (IPC). The parent maintains a wait queue for each node and selectively wakes up waiting children using a dedicated array of POSIX Semaphores (`sem_wait` / `sem_post`), based entirely on the active scheduling algorithm.
+
+## Scheduling Algorithms Comparison (FCFS vs. SJF)
+In this milestone, we implemented and compared two different scheduling algorithms for managing the intersection queues:
+
+1. **FCFS (First Come First Serve):** Travelers (processes) are allowed to enter the node strictly in the order they arrived at the queue.
+   * **Pros:** Complete fairness; ensures no process will suffer from starvation.
+   * **Cons:** Susceptible to the "Convoy Effect." If a slow or long process occupies the node, all subsequent fast processes are bottlenecked behind it, which significantly increases the average waiting time of the system.
+
+2. **SJF (Shortest Job First / Priority-Based):** Travelers with a better priority (representing shorter burst times) are given the right-of-way, bypassing others in the wait queue.
+   * **Pros:** Minimizes the overall average waiting time and resolves bottlenecks efficiently, allowing quick processes to pass through without unnecessary delays.
+   * **Cons:** In a heavily loaded system, continuous arrival of high-priority processes could lead to the starvation of lower-priority processes, preventing them from ever acquiring the node.

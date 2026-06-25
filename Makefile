@@ -24,6 +24,12 @@ milestone5:
 milestone6:
 	gcc main.c graph.c -lraylib -lGL -lm -lpthread -ldl -lrt -lX11 -o sim
 
+# Milestone 7: Build the simulation with scheduling algorithms (FCFS/SJF)
+milestone7:
+	cmake -B cmake-build-debug
+	cmake --build cmake-build-debug
+	cp cmake-build-debug/sim .
+
 # Clean all build and executable files
 clean:
 	rm -rf build-m1 build-m2 cmake-build-debug sim dijkstra
