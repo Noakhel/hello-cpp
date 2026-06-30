@@ -301,17 +301,18 @@ int main(int argc, char *argv[]) {
             if (!node_busy[n] && wait_count[n] > 0) {
                 int chosen_idx = 0; // ברירת מחדל לאינדקס הראשון (FCFS)
 
-                if (is_sjf) {
-                    // SJF: חיפוש הילד עם העדיפות הטובה ביותר (הערך הנמוך ביותר)
-                    int min_prio = 999999;
-                    for (int q = 0; q < wait_count[n]; q++) {
-                        int cid = wait_queue[n][q];
-                        if (gui_travelers[cid].priority < min_prio) {
-                            min_prio = gui_travelers[cid].priority;
-                            chosen_idx = q;
-                        }
-                    }
-                }
+             if (is_sjf) {
+    pid_t min_pid = gui_travelers[wait_queue[n][0]].pid;
+
+    for (int q = 1; q < wait_count[n]; q++) {
+        int cid = wait_queue[n][q];
+
+        if (gui_travelers[cid].pid < min_pid) {
+            min_pid = gui_travelers[cid].pid;
+            chosen_idx = q;
+        }
+    }
+}
 
                 int chosen_child = wait_queue[n][chosen_idx];
 
@@ -409,3 +410,4 @@ int main(int argc, char *argv[]) {
     CloseWindow();
     return 0;
 }
+// TODO: Scheduler should choose the process with the lowest PID
