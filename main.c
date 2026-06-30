@@ -5,13 +5,16 @@
 #include "raylib.h"
 #include <math.h>
 #include <signal.h> // נוסף עבור פקודת kill
-
 // ספריות עבור ניהול תהליכים, צינורות ותקשורת לא חוסמת
 #include <unistd.h>
 #include <sys/wait.h>
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <semaphore.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <math.h>
 
 #define NUM_TRAVELERS 3
 
@@ -19,7 +22,8 @@
 typedef enum {
     MSG_WAITING,   // הילד ממתין להיכנס לצומת
     MSG_TRAVELING, // הילד קיבל אישור ונכנס לצומת
-    MSG_RELEASE    // הילד סיים ועוזב את הצומת
+    MSG_RELEASE,   // הילד סיים ועוזב את הצומת
+    MSG_NO_ROUTE   // הודעה מיוחדת: אין מסלול ליעד!
 } MsgType;
 
 // הגדרת מבנה ההודעה שהבנים ישלחו לאב
@@ -45,7 +49,7 @@ typedef struct {
     int priority;
 } GuiTraveler;
 
-// פונקציית עזר פנימית שמחלצת את המסלול האמיתי
+// פונקציית עזר פנימית שמחלצת את המסלול האמית
 int getTravelerPath(Graph* g, int start, int end, int path[]) {
     if (start == end) {
         path[0] = start;
@@ -182,39 +186,57 @@ int main(int argc, char *argv[]) {
             // עדיפות לדוגמה: אפשר לשנות לקריאה מהקובץ. מספר קטן = עדיפות גבוהה
             int my_priority = (i % 3) + 1;
 
-            for (int pathIdx = 0; pathIdx < myPathLength; pathIdx++) {
+            // בדיקה אם אין מסלול ליעד (משימה c)
+            if (myPathLength == 0) {
                 TravelerMessage msg;
                 msg.pid = getpid();
                 msg.child_id = i;
-                msg.current_node = myPath[pathIdx];
-                msg.next_node = (pathIdx < myPathLength - 1) ? myPath[pathIdx + 1] : -1;
-                msg.is_finished = (pathIdx == myPathLength - 1) ? 1 : 0;
+                msg.current_node = sources[i];
+                msg.next_node = -1;
+                msg.is_finished = 1;
                 msg.priority = my_priority;
+                msg.type = MSG_NO_ROUTE; // שליחת ההודעה המיוחדת לאב
 
-                // בקשת כניסה לצומת
-                msg.type = MSG_WAITING;
                 write(pipes[i][1], &msg, sizeof(TravelerMessage));
+                close(pipes[i][1]);
+                exit(0); // הבן מסיים כי אין לו לאן ללכת
+            }
+            else {
+                // לולאת הנסיעה המקורית
+                for (int pathIdx = 0; pathIdx < myPathLength; pathIdx++) {
+                    TravelerMessage msg;
+                    msg.pid = getpid();
+                    msg.child_id = i;
+                    msg.current_node = myPath[pathIdx];
+                    msg.next_node = (pathIdx < myPathLength - 1) ? myPath[pathIdx + 1] : -1;
+                    msg.is_finished = (pathIdx == myPathLength - 1) ? 1 : 0;
+                    msg.priority = my_priority;
 
-                // ממתין שהאבא (המתזמן) יעיר אותי
-                sem_wait(&traveler_sems[i]);
-
-                // אני בפנים! מעדכן את האבא שאני נוסע
-                msg.type = MSG_TRAVELING;
-                write(pipes[i][1], &msg, sizeof(TravelerMessage));
-
-                if (msg.is_finished) {
-                    msg.type = MSG_RELEASE; // הגעתי ליעד, משחרר את הצומת
+                    // בקשת כניסה לצומת
+                    msg.type = MSG_WAITING;
                     write(pipes[i][1], &msg, sizeof(TravelerMessage));
-                    break;
+
+                    // ממתין שהאבא (המתזמן) יעיר אותי
+                    sem_wait(&traveler_sems[i]);
+
+                    // אני בפנים! מעדכן את האבא שאני נוסע
+                    msg.type = MSG_TRAVELING;
+                    write(pipes[i][1], &msg, sizeof(TravelerMessage));
+
+                    if (msg.is_finished) {
+                        msg.type = MSG_RELEASE; // הגעתי ליעד, משחרר את הצומת
+                        write(pipes[i][1], &msg, sizeof(TravelerMessage));
+                        break;
+                    }
+
+                    int weight = myGraph.weight[msg.current_node][msg.next_node];
+                    usleep(weight * 300000);
+                    usleep(1000000);
+
+                    // מסיים בצומת ומשחרר אותו כדי שהאבא יעיר את הבא בתור
+                    msg.type = MSG_RELEASE;
+                    write(pipes[i][1], &msg, sizeof(TravelerMessage));
                 }
-
-                int weight = myGraph.weight[msg.current_node][msg.next_node];
-                usleep(weight * 300000);
-                usleep(1000000);
-
-                // מסיים בצומת ומשחרר אותו כדי שהאבא יעיר את הבא בתור
-                msg.type = MSG_RELEASE;
-                write(pipes[i][1], &msg, sizeof(TravelerMessage));
             }
 
             close(pipes[i][1]);
@@ -264,7 +286,13 @@ int main(int argc, char *argv[]) {
                 int node = receivedMsg.current_node;
                 gui_travelers[i].priority = receivedMsg.priority;
 
-                if (receivedMsg.type == MSG_WAITING) {
+                // זיהוי וטיפול נפרד בהודעת "אין מסלול" (משימה c)
+                if (receivedMsg.type == MSG_NO_ROUTE) {
+                    printf("[PID=%d] TRAVELER %d: NO ROUTE TO DESTINATION!\n", receivedMsg.pid, i + 1);
+                    gui_travelers[i].finished = 1;
+                    gui_travelers[i].active = 0;
+                }
+                else if (receivedMsg.type == MSG_WAITING) {
                     gui_travelers[i].waiting = 1;
                     // הכנסה לתור ההמתנה של הצומת המבוקש
                     wait_queue[node][wait_count[node]] = i;
