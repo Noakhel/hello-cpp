@@ -34,3 +34,4 @@ In this milestone, we implemented and compared two different scheduling algorith
 2. **SJF (Shortest Job First / Priority-Based):** Travelers with a better priority (representing shorter burst times) are given the right-of-way, bypassing others in the wait queue.
    * **Pros:** Minimizes the overall average waiting time and resolves bottlenecks efficiently, allowing quick processes to pass through without unnecessary delays.
    * **Cons:** In a heavily loaded system, continuous arrival of high-priority processes could lead to the starvation of lower-priority processes, preventing them from ever acquiring the node.
+Exam D: I found that the scheduler logic should be changed to prefer the lowest PID process.
