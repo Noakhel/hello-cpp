@@ -296,10 +296,21 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        // 2. לוגיקת המתזמן (Scheduler) - רץ על כל הצמתים ומעיר בנים במידת הצורך
-        for (int n = 0; n < myGraph.numNodes; n++) {
+       // 2. לוגיקת המתזמן (Scheduler) - רץ על כל הצמתים ומעיר בנים במידת הצורך
+       for (int n = 0; n < myGraph.numNodes; n++) {
             if (!node_busy[n] && wait_count[n] > 0) {
+                
+                // הדפסת מעקב: מי כרגע ממתין בכניסה לצומת n
+                printf("\n--- Scheduler Decision for Node %d ---\n", n);
+                printf("Waiting travelers at node %d: ", n);
+                for (int q = 0; q < wait_count[n]; q++) {
+                    int cid = wait_queue[n][q];
+                    printf("[Child_ID: %d, Priority/SJF-Weight: %d] ", cid, gui_travelers[cid].priority);
+                }
+                printf("\n");
+
                 int chosen_idx = 0; // ברירת מחדל לאינדקס הראשון (FCFS)
+                int chosen_child = 0; // הגדרה פעם אחת בלבד כאן למעלה כדי למנוע כפל הגדרות
 
                 if (is_sjf) {
                     // SJF: חיפוש הילד עם העדיפות הטובה ביותר (הערך הנמוך ביותר)
@@ -311,9 +322,16 @@ int main(int argc, char *argv[]) {
                             chosen_idx = q;
                         }
                     }
+                    chosen_child = wait_queue[n][chosen_idx];
+                    // הדפסת הסבר למה הוא נבחר תחת מתזמן SJF
+                    printf("Scheduler Decision [SJF]: Selected Child_ID %d because it has the shortest job / highest priority (%d).\n", 
+                           chosen_child, gui_travelers[chosen_child].priority);
+                } 
+                else {
+                    chosen_child = wait_queue[n][chosen_idx];
+                    // הדפסת הסבר למה הוא נבחר תחת מתזמן FCFS
+                    printf("Scheduler Decision [FCFS]: Selected Child_ID %d because it arrived first at the queue.\n", chosen_child);
                 }
-
-                int chosen_child = wait_queue[n][chosen_idx];
 
                 // הוצאת הילד מהתור והזזת שאר הממתינים שמאלה
                 for (int q = chosen_idx; q < wait_count[n] - 1; q++) {
@@ -324,17 +342,6 @@ int main(int argc, char *argv[]) {
                 // סימון הצומת כתפוס והערת הילד הנבחר
                 node_busy[n] = 1;
                 sem_post(&traveler_sems[chosen_child]);
-            }
-        }
-
-        // 3. עדכון מיקומי אנימציה ב-GUI
-        for (int i = 0; i < NUM_TRAVELERS; i++) {
-            if (gui_travelers[i].active && !gui_travelers[i].finished && gui_travelers[i].next_node != -1 && !gui_travelers[i].waiting) {
-                int to = gui_travelers[i].next_node;
-                float targetX = myGraph.x[to];
-                float targetY = myGraph.y[to];
-                gui_travelers[i].posX += (targetX - gui_travelers[i].posX) * deltaTime * 2.0f;
-                gui_travelers[i].posY += (targetY - gui_travelers[i].posY) * deltaTime * 2.0f;
             }
         }
 
