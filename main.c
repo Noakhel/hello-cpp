@@ -4,7 +4,7 @@
 #include "graph.h"
 #include "raylib.h"
 #include <math.h>
-#include <signal.h> // נוסף עבור פקודת kill
+#include <signal.h>
 
 // ספריות עבור ניהול תהליכים, צינורות ותקשורת לא חוסמת
 #include <unistd.h>
@@ -119,7 +119,7 @@ int main(int argc, char *argv[]) {
             } else if (strcmp(argv[i+1], "fcfs") == 0) {
                 is_sjf = 0;
             }
-            i++; // דילוג על הארגומנט הבא (fcfs/sjf)
+            i++; // דילוג על הארגומנט הבא
         } else {
             strcpy(filename, argv[i]);
         }
@@ -131,7 +131,7 @@ int main(int argc, char *argv[]) {
     readGraph(filename, &myGraph, &dummyStart, &dummyEnd);
     AssignNodePositions(&myGraph);
 
-    // 2. סמפור אישי לכל תהליך (ילד) במקום סמפור לצומת. מאותחל ל-0 כדי שיחסמו מיד.
+    // 2. סמפור אישי לכל תהליך
     sem_t *traveler_sems = mmap(NULL, sizeof(sem_t) * NUM_TRAVELERS,
                         PROT_READ | PROT_WRITE,
                         MAP_SHARED | MAP_ANONYMOUS, -1, 0);
@@ -147,11 +147,21 @@ int main(int argc, char *argv[]) {
 
     int sources[NUM_TRAVELERS] = {0, 1, 2};
     int dests[NUM_TRAVELERS] = {4, 4, 4};
-    int pipes[NUM_TRAVELERS][2];
 
+    // צינורות לתקשורת כללית (סטטוסים)
+    int pipes[NUM_TRAVELERS][2];
     for (int i = 0; i < NUM_TRAVELERS; i++) {
         if (pipe(pipes[i]) == -1) {
             perror("Failed to create pipe");
+            return 1;
+        }
+    }
+
+    // --- הוספה למשימה b: צינור תקשורת ייעודי לשליחת הת"ז ---
+    int id_pipes[NUM_TRAVELERS][2];
+    for (int i = 0; i < NUM_TRAVELERS; i++) {
+        if (pipe(id_pipes[i]) == -1) {
+            perror("Failed to create ID pipe");
             return 1;
         }
     }
@@ -167,10 +177,14 @@ int main(int argc, char *argv[]) {
 
         if (pid == 0) { // --------- קוד הבן ---------
             close(pipes[i][0]);
+            close(id_pipes[i][1]); // הבן רק קורא מהצינור של הת"ז
+
             for (int j = 0; j < NUM_TRAVELERS; j++) {
                 if (j != i) {
                     close(pipes[j][0]);
                     close(pipes[j][1]);
+                    close(id_pipes[j][0]);
+                    close(id_pipes[j][1]);
                 }
             }
 
@@ -179,7 +193,6 @@ int main(int argc, char *argv[]) {
             int myPath[MAX_NODES];
             int myPathLength = getTravelerPath(&myGraph, sources[i], dests[i], myPath);
 
-            // עדיפות לדוגמה: אפשר לשנות לקריאה מהקובץ. מספר קטן = עדיפות גבוהה
             int my_priority = (i % 3) + 1;
 
             for (int pathIdx = 0; pathIdx < myPathLength; pathIdx++) {
@@ -191,37 +204,60 @@ int main(int argc, char *argv[]) {
                 msg.is_finished = (pathIdx == myPathLength - 1) ? 1 : 0;
                 msg.priority = my_priority;
 
-                // בקשת כניסה לצומת
                 msg.type = MSG_WAITING;
                 write(pipes[i][1], &msg, sizeof(TravelerMessage));
 
-                // ממתין שהאבא (המתזמן) יעיר אותי
                 sem_wait(&traveler_sems[i]);
 
-                // אני בפנים! מעדכן את האבא שאני נוסע
                 msg.type = MSG_TRAVELING;
                 write(pipes[i][1], &msg, sizeof(TravelerMessage));
 
                 if (msg.is_finished) {
-                    msg.type = MSG_RELEASE; // הגעתי ליעד, משחרר את הצומת
+                    msg.type = MSG_RELEASE;
                     write(pipes[i][1], &msg, sizeof(TravelerMessage));
                     break;
                 }
 
-                int weight = myGraph.weight[msg.current_node][msg.next_node];
-                usleep(weight * 300000);
-                usleep(1000000);
+                // --- הוספה למשימה b: קריאת ת"ז מה-Pipe פעם אחת בתחילת המסלול ---
+                if (pathIdx == 0) {
+                    int search_id;
+                    read(id_pipes[i][0], &search_id, sizeof(int));
+                    printf("[PID=%d] Received via PIPE: Searching for ID %d\n", getpid(), search_id);
+                }
 
-                // מסיים בצומת ומשחרר אותו כדי שהאבא יעיר את הבא בתור
+                // --- הוספה למשימה b: סימולציית Round Robin ו-Timeout ---
+                int weight = myGraph.weight[msg.current_node][msg.next_node];
+                int total_time_ms = (weight * 300) + 1000; // הזמן הכולל הנדרש למעבר
+                int quantum_ms = 500; // קוונטום של חצי שנייה
+                int remaining = total_time_ms;
+
+                while (remaining > 0) {
+                    if (remaining > quantum_ms) {
+                        printf("[PID=%d] RR Scheduler: Quantum used. TIMEOUT! Context switch...\n", getpid());
+                        usleep(quantum_ms * 1000);
+                        remaining -= quantum_ms;
+                    } else {
+                        printf("[PID=%d] RR Scheduler: Task completed within quantum.\n", getpid());
+                        usleep(remaining * 1000);
+                        remaining = 0;
+                    }
+                }
+
                 msg.type = MSG_RELEASE;
                 write(pipes[i][1], &msg, sizeof(TravelerMessage));
             }
 
             close(pipes[i][1]);
+            close(id_pipes[i][0]);
             exit(0);
         } else { // --------- קוד האב ---------
             child_pids[i] = pid;
             close(pipes[i][1]);
+
+            // --- הוספה למשימה b: שליחת הת"ז דרך ה-Pipe ---
+            close(id_pipes[i][0]); // האב רק כותב לצינור של הת"ז
+            int target_id = 312345678; // ת"ז לדוגמה עבור המשימה
+            write(id_pipes[i][1], &target_id, sizeof(int));
 
             int flags = fcntl(pipes[i][0], F_GETFL, 0);
             fcntl(pipes[i][0], F_SETFL, flags | O_NONBLOCK);
@@ -245,15 +281,13 @@ int main(int argc, char *argv[]) {
         gui_travelers[i].priority = 0;
     }
 
-    // מבני הנתונים של המתזמן (האב)
-    int node_busy[MAX_NODES] = {0}; // 0 = פנוי, 1 = תפוס
-    int wait_queue[MAX_NODES][NUM_TRAVELERS]; // תור המתנה לכל צומת
-    int wait_count[MAX_NODES] = {0}; // כמות הממתינים בכל צומת
+    int node_busy[MAX_NODES] = {0};
+    int wait_queue[MAX_NODES][NUM_TRAVELERS];
+    int wait_count[MAX_NODES] = {0};
 
     while (!WindowShouldClose()) {
         float deltaTime = GetFrameTime();
 
-        // 1. קריאת הודעות מכל הבנים
         for (int i = 0; i < NUM_TRAVELERS; i++) {
             if (!gui_travelers[i].active) continue;
 
@@ -266,7 +300,6 @@ int main(int argc, char *argv[]) {
 
                 if (receivedMsg.type == MSG_WAITING) {
                     gui_travelers[i].waiting = 1;
-                    // הכנסה לתור ההמתנה של הצומת המבוקש
                     wait_queue[node][wait_count[node]] = i;
                     wait_count[node]++;
                 }
@@ -285,10 +318,7 @@ int main(int argc, char *argv[]) {
                     }
                 }
                 else if (receivedMsg.type == MSG_RELEASE) {
-                    // שחרור הצומת
                     node_busy[node] = 0;
-
-                    // הפסקת האזנה לילד רק אחרי שהצומת שוחרר בהצלחה
                     if (receivedMsg.is_finished) {
                         gui_travelers[i].active = 0;
                     }
@@ -296,13 +326,11 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        // 2. לוגיקת המתזמן (Scheduler) - רץ על כל הצמתים ומעיר בנים במידת הצורך
         for (int n = 0; n < myGraph.numNodes; n++) {
             if (!node_busy[n] && wait_count[n] > 0) {
-                int chosen_idx = 0; // ברירת מחדל לאינדקס הראשון (FCFS)
+                int chosen_idx = 0;
 
                 if (is_sjf) {
-                    // SJF: חיפוש הילד עם העדיפות הטובה ביותר (הערך הנמוך ביותר)
                     int min_prio = 999999;
                     for (int q = 0; q < wait_count[n]; q++) {
                         int cid = wait_queue[n][q];
@@ -315,19 +343,16 @@ int main(int argc, char *argv[]) {
 
                 int chosen_child = wait_queue[n][chosen_idx];
 
-                // הוצאת הילד מהתור והזזת שאר הממתינים שמאלה
                 for (int q = chosen_idx; q < wait_count[n] - 1; q++) {
                     wait_queue[n][q] = wait_queue[n][q + 1];
                 }
                 wait_count[n]--;
 
-                // סימון הצומת כתפוס והערת הילד הנבחר
                 node_busy[n] = 1;
                 sem_post(&traveler_sems[chosen_child]);
             }
         }
 
-        // 3. עדכון מיקומי אנימציה ב-GUI
         for (int i = 0; i < NUM_TRAVELERS; i++) {
             if (gui_travelers[i].active && !gui_travelers[i].finished && gui_travelers[i].next_node != -1 && !gui_travelers[i].waiting) {
                 int to = gui_travelers[i].next_node;
@@ -341,10 +366,8 @@ int main(int argc, char *argv[]) {
         BeginDrawing();
         ClearBackground(RAYWHITE);
 
-        // תצוגת המתזמן הפעיל בפינה העליונה
         DrawText(TextFormat("Current Scheduler: %s", is_sjf ? "SJF (Shortest Job First)" : "FCFS (First Come First Serve)"), 20, 20, 20, DARKBLUE);
 
-        // ציור קשתות
         for (int i = 0; i < myGraph.numNodes; i++) {
             for (int j = 0; j < myGraph.numNodes; j++) {
                 if (myGraph.weight[i][j] > 0 && myGraph.weight[i][j] < 1000) {
@@ -358,13 +381,11 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        // ציור צמתים
         for (int i = 0; i < myGraph.numNodes; i++) {
             DrawCircle(myGraph.x[i], myGraph.y[i], 25, BLUE);
             DrawText(TextFormat("%d", i), myGraph.x[i] - 5, myGraph.y[i] - 8, 20, WHITE);
         }
 
-        // ציור נוסעים
         for (int i = 0; i < NUM_TRAVELERS; i++) {
             Color travelerColor;
             if (gui_travelers[i].waiting) {
@@ -379,7 +400,6 @@ int main(int argc, char *argv[]) {
             DrawCircle(gui_travelers[i].posX, gui_travelers[i].posY, 15, travelerColor);
             DrawText(TextFormat("P%d", i+1), gui_travelers[i].posX - 10, gui_travelers[i].posY - 6, 12, WHITE);
 
-            // הצגת עדיפות מעל הנוסע אם זה SJF
             if (is_sjf) {
                 DrawText(TextFormat("pr:%d", gui_travelers[i].priority), gui_travelers[i].posX - 12, gui_travelers[i].posY - 22, 10, BLACK);
             }
@@ -394,14 +414,13 @@ int main(int argc, char *argv[]) {
         EndDrawing();
     }
 
-    // איסוף הבנים והדפסת finished בסיום
     for (int i = 0; i < NUM_TRAVELERS; i++) {
-        // מנגנון בטיחות: אם סגרת את החלון לפני שהם סיימו, נחסל את התהליכים כדי שלא ניתקע
         if (!gui_travelers[i].finished) {
             kill(child_pids[i], SIGKILL);
         }
 
         close(pipes[i][0]);
+        close(id_pipes[i][1]); // סגירת הצינור של האב בסיום
         waitpid(child_pids[i], NULL, 0);
         printf("[PID=%d] finished\n", child_pids[i]);
     }
